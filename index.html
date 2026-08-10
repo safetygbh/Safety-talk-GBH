@@ -16,6 +16,9 @@
     
     <!-- SweetAlert2 -->
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    
+    <!-- html2pdf.js สำหรับสร้าง PDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 
     <!-- กำหนด Theme สีของบริษัท Global House (เขียว) -->
     <script>
@@ -176,9 +179,14 @@
         <div id="view-history" class="space-y-6 hidden">
             <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <h2 class="text-2xl font-bold text-white"><i class="fa-solid fa-clock-rotate-left mr-2 text-globalgreen-400"></i>ประวัติกิจกรรม</h2>
-                <button onclick="openAddModal()" class="bg-globalgreen-600 hover:bg-globalgreen-500 text-white px-5 py-2.5 rounded-lg shadow-lg font-medium transition-all transform hover:-translate-y-0.5 flex items-center">
-                    <i class="fa-solid fa-plus mr-2"></i> เพิ่มกิจกรรมใหม่
-                </button>
+                <div class="flex space-x-3 items-center">
+                    <button id="btn-export-pdf" onclick="previewPDF()" class="hidden bg-red-600 hover:bg-red-500 text-white px-5 py-2.5 rounded-lg shadow-lg font-medium transition-all transform hover:-translate-y-0.5 flex items-center">
+                        <i class="fa-solid fa-file-pdf mr-2"></i> สร้างรายงาน PDF (<span id="selected-count">0</span>)
+                    </button>
+                    <button onclick="openAddModal()" class="bg-globalgreen-600 hover:bg-globalgreen-500 text-white px-5 py-2.5 rounded-lg shadow-lg font-medium transition-all transform hover:-translate-y-0.5 flex items-center">
+                        <i class="fa-solid fa-plus mr-2"></i> เพิ่มกิจกรรมใหม่
+                    </button>
+                </div>
             </div>
 
             <!-- Search Filters -->
@@ -215,6 +223,9 @@
                     <table class="w-full text-left text-sm">
                         <thead class="bg-[#14532d]/50 text-globalgreen-300">
                             <tr>
+                                <th class="py-3 px-4 font-medium w-12 text-center">
+                                    <input type="checkbox" id="selectAllHist" onchange="toggleSelectAllHist()" class="w-4 h-4 rounded text-globalgreen-600 focus:ring-globalgreen-500 bg-[#052e16] border-globalgreen-800 cursor-pointer" title="เลือกทั้งหมดในหน้านี้">
+                                </th>
                                 <th class="py-3 px-4 font-medium w-40">วัน/เวลาจัดกิจกรรม</th>
                                 <th class="py-3 px-4 font-medium w-48">สาขา</th>
                                 <th class="py-3 px-4 font-medium w-32">พื้นที่</th>
@@ -339,7 +350,45 @@
         </div>
     </div>
 
+    <!-- Modal: PDF Preview -->
+    <div id="modal-pdf-preview" class="fixed inset-0 z-50 hidden bg-[#052e16]/90 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-[#0b3323] border border-globalgreen-700 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[95vh] flex flex-col transform transition-all">
+            <div class="p-5 border-b border-globalgreen-800 flex justify-between items-center bg-[#14532d]/30">
+                <h3 class="text-lg font-bold text-white"><i class="fa-solid fa-file-pdf mr-2 text-red-400"></i>ตัวอย่างก่อนพิมพ์รายงาน (PDF Preview)</h3>
+                <button onclick="closeModal('modal-pdf-preview')" class="text-globalgreen-400 hover:text-white transition"><i class="fa-solid fa-xmark text-xl"></i></button>
+            </div>
+            
+            <!-- พื้นหลังลายหมากรุกเข้ม ให้ดูเหมือนโปรแกรมดูเอกสาร -->
+            <div class="flex-grow overflow-y-auto p-4 sm:p-8 custom-scrollbar bg-gray-800" style="background-image: repeating-linear-gradient(45deg, #1f2937 25%, transparent 25%, transparent 75%, #1f2937 75%, #1f2937), repeating-linear-gradient(45deg, #1f2937 25%, #111827 25%, #111827 75%, #1f2937 75%, #1f2937); background-position: 0 0, 10px 10px; background-size: 20px 20px;">
+                
+                <!-- พื้นที่กระดาษ A4 -->
+                <div id="pdf-preview-content" class="bg-white mx-auto shadow-2xl rounded-sm" style="width: 100%; max-width: 800px; min-height: 1130px; padding: 40px; box-sizing: border-box;">
+                    <!-- เนื้อหา PDF จะถูกสร้างขึ้นมาในนี้ -->
+                </div>
+
+            </div>
+            <div class="p-4 border-t border-globalgreen-800 bg-[#14532d]/20 flex justify-end space-x-3">
+                <button onclick="closeModal('modal-pdf-preview')" class="px-5 py-2.5 bg-globalgreen-800 hover:bg-globalgreen-700 text-white rounded-lg transition font-medium">ปิดหน้าต่าง</button>
+                <button onclick="downloadPDF()" class="px-6 py-2.5 bg-red-600 hover:bg-red-500 text-white rounded-lg transition shadow-lg font-medium flex items-center">
+                    <i class="fa-solid fa-download mr-2"></i> ดาวน์โหลด PDF
+                </button>
+            </div>
+        </div>
+    </div>
+
     <script>
+        // ดักจับและระงับข้อผิดพลาดทุกชนิดรวมถึง [UNHANDLEDREJECTION] แบบขั้นเด็ดขาด (Capture Phase)
+        // เพื่อป้องกันไม่ให้ UI ของแพลตฟอร์มแจ้งเตือน Error ที่มาจาก Library ภายนอก (เช่น html2canvas โหลดรูปล้มเหลว)
+        window.addEventListener('unhandledrejection', function(event) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+        }, true);
+
+        window.addEventListener('error', function(event) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+        }, true);
+
         // ==========================================
         // การตั้งค่า Google Apps Script URL
         // ==========================================
@@ -355,11 +404,19 @@
         const ITEMS_PER_PAGE = 10;
         let processedDashData = [];
         let processedHistData = [];
+        let selectedPdfIds = []; // เก็บ ID ที่ถูกเลือกเพื่อพิม PDF
 
         window.onload = () => {
-            initYearDropdown();
-            loadBranches();
-            loadDataFromSheet();
+            try {
+                initYearDropdown();
+                // ใช้ Promise.allSettled เพื่อโหลดข้อมูลแบบขนานและดักจับ Error ภายในตัวเพื่อป้องกัน Unhandled Rejection
+                Promise.allSettled([
+                    loadBranches(),
+                    loadDataFromSheet()
+                ]).catch(err => console.warn("Init promise error:", err));
+            } catch (error) {
+                console.error("Initialization Error:", error);
+            }
         };
 
         // ตั้งค่าปีใน Dashboard
@@ -401,7 +458,9 @@
             if (refreshIcon) refreshIcon.classList.add('fa-spin');
 
             try {
-                const res = await fetch(`${APPS_SCRIPT_URL}?action=getData`);
+                const res = await fetch(`${APPS_SCRIPT_URL}?action=getData`, { redirect: "follow" });
+                if (!res.ok) throw new Error(`HTTP Status: ${res.status}`);
+                
                 const data = await res.json();
                 
                 if (data && data.status === 'success') {
@@ -422,7 +481,9 @@
         // โหลดรายชื่อสาขา
         async function loadBranches() {
             try {
-                const res = await fetch(`${APPS_SCRIPT_URL}?action=getBranches`);
+                const res = await fetch(`${APPS_SCRIPT_URL}?action=getBranches`, { redirect: "follow" });
+                if (!res.ok) throw new Error(`HTTP Status: ${res.status}`);
+                
                 const data = await res.json();
                 if(data && data.status === 'success') {
                     branchList = Array.isArray(data.data) ? data.data : [];
@@ -439,7 +500,8 @@
                 }
             } catch(e) {
                 console.error("Load Branch Error", e);
-                document.getElementById('act-branch').innerHTML = '<option value="">กรุณากรอกสาขาเอง (ดึงข้อมูลไม่สำเร็จ)</option>';
+                const select = document.getElementById('act-branch');
+                if (select) select.innerHTML = '<option value="">กรุณากรอกสาขาเอง (ดึงข้อมูลไม่สำเร็จ)</option>';
             }
         }
 
@@ -613,7 +675,11 @@
         function filterHistory() {
             try {
                 if (!allActivities) return;
-
+                
+                // เคลียร์ค่าที่เลือกพิมพ์ PDF เมื่อมีการค้นหาใหม่ เพื่อป้องกันความสับสน
+                selectedPdfIds = [];
+                updateExportButtonState();
+                
                 const branchQuery = document.getElementById('search-branch').value.toLowerCase().trim();
                 const respQuery = document.getElementById('search-responsible').value.toLowerCase().trim();
                 const monthQuery = document.getElementById('search-month').value;
@@ -643,9 +709,13 @@
             const tbody = document.getElementById('history-tbody');
             tbody.innerHTML = '';
             
+            // ยกเลิกติ๊กเลือกทั้งหมดเมื่อเปลี่ยนหน้า
+            const selectAllCb = document.getElementById('selectAllHist');
+            if(selectAllCb) selectAllCb.checked = false;
+            
             const total = processedHistData.length;
             if (total === 0) {
-                tbody.innerHTML = `<tr><td colspan="7" class="py-8 text-center text-globalgreen-400">ไม่พบข้อมูลกิจกรรมที่ค้นหา</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="8" class="py-8 text-center text-globalgreen-400">ไม่พบข้อมูลกิจกรรมที่ค้นหา</td></tr>`;
                 updatePaginationInfo('hist', 0, 0, 0, 1, 1);
                 return;
             }
@@ -667,7 +737,12 @@
                     ? `<span class="bg-[#14532d] text-green-300 px-2.5 py-1 rounded-lg text-xs font-medium"><i class="fa-solid fa-image mr-1"></i>(${item.images.length})</span>`
                     : `<span class="text-xs text-globalgreen-600">ไม่มีรูป</span>`;
 
+                const isChecked = selectedPdfIds.includes(item.id) ? 'checked' : '';
+
                 tr.innerHTML = `
+                    <td class="py-3 px-4 text-center">
+                        <input type="checkbox" value="${item.id}" ${isChecked} class="hist-checkbox w-4 h-4 rounded text-globalgreen-600 focus:ring-globalgreen-500 bg-[#052e16] border-globalgreen-800 cursor-pointer" onchange="handleCheckboxChange(this); updateExportButtonState();">
+                    </td>
                     <td class="py-3 px-4 text-xs text-globalgreen-300">${formatDateTime(item.datetime)}</td>
                     <td class="py-3 px-4 font-medium text-white">${escapeHtml(item.branch)}</td>
                     <td class="py-3 px-4 text-globalgreen-200 text-xs">${escapeHtml(item.area)}</td>
@@ -684,6 +759,165 @@
             });
 
             updatePaginationInfo('hist', start + 1, end, total, histPage, totalPages);
+        }
+
+        function toggleSelectAllHist() {
+            const isChecked = document.getElementById('selectAllHist').checked;
+            const checkboxes = document.querySelectorAll('.hist-checkbox');
+            checkboxes.forEach(cb => {
+                cb.checked = isChecked;
+                handleCheckboxChange(cb);
+            });
+            updateExportButtonState();
+        }
+
+        function handleCheckboxChange(cb) {
+            if (cb.checked) {
+                if (!selectedPdfIds.includes(cb.value)) selectedPdfIds.push(cb.value);
+            } else {
+                selectedPdfIds = selectedPdfIds.filter(id => id !== cb.value);
+            }
+        }
+
+        function updateExportButtonState() {
+            const exportBtn = document.getElementById('btn-export-pdf');
+            const countSpan = document.getElementById('selected-count');
+            
+            if (selectedPdfIds.length > 0) {
+                exportBtn.classList.remove('hidden');
+                countSpan.innerText = selectedPdfIds.length;
+            } else {
+                exportBtn.classList.add('hidden');
+            }
+        }
+
+        // เพิ่มฟังก์ชันดึงรูปภาพเป็น Base64 ผ่าน Proxy เพื่อแก้ปัญหาโหลดรูปลง PDF ไม่ได้
+        async function fetchImageAsBase64(url) {
+            if (!url || url.startsWith('data:')) return url;
+            const proxies = [
+                'https://api.allorigins.win/raw?url=',
+                'https://api.codetabs.com/v1/proxy?quest='
+            ];
+            for (let proxy of proxies) {
+                try {
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 6000);
+                    const res = await fetch(proxy + encodeURIComponent(url), { signal: controller.signal });
+                    clearTimeout(timeoutId);
+                    if (res.ok) {
+                        const blob = await res.blob();
+                        return await new Promise((resolve) => {
+                            const reader = new FileReader();
+                            reader.onloadend = () => resolve(reader.result);
+                            reader.readAsDataURL(blob);
+                        });
+                    }
+                } catch (e) {
+                    console.warn("Proxy fallback:", e);
+                }
+            }
+            return url; // ถ้า Proxy ล้มเหลวทั้งหมด ให้ใช้ URL ปกติ
+        }
+
+        async function previewPDF() {
+            if (selectedPdfIds.length === 0) return;
+
+            const itemsToExport = processedHistData.filter(item => selectedPdfIds.includes(item.id));
+            if(itemsToExport.length === 0) return;
+
+            // แสดงแจ้งเตือนกำลังโหลดรูปล่วงหน้า
+            Swal.fire({
+                title: 'กำลังเตรียมเอกสาร...',
+                text: 'ระบบกำลังดาวน์โหลดและประมวลผลรูปภาพ กรุณารอสักครู่',
+                allowOutsideClick: false,
+                background: '#0b3323',
+                color: '#ffffff',
+                didOpen: () => { Swal.showLoading(); }
+            });
+
+            const container = document.getElementById('pdf-preview-content');
+            
+            let htmlContent = `
+                <div style="font-family: 'Sarabun', sans-serif; color: #333;">
+                    <div style="text-align: center; margin-bottom: 30px; border-bottom: 3px solid #16a34a; padding-bottom: 15px;">
+                        <h1 style="font-size: 28px; font-weight: bold; color: #14532d; margin: 0;">รายงานกิจกรรม Safety Talk</h1>
+                        <div style="font-size: 16px; color: #555; margin-top: 8px;">บริษัท สยามโกลบอลเฮ้าส์ จำกัด (มหาชน)</div>
+                        <div style="font-size: 14px; margin-top: 10px; color: #666;">วันที่ออกรายงาน: ${new Date().toLocaleDateString('th-TH')} | จำนวน: ${itemsToExport.length} รายการ</div>
+                    </div>
+            `;
+
+            // โหลดข้อมูลรูปภาพทั้งหมดแบบขนาน (Concurrent) เพื่อความรวดเร็ว
+            const renderedItems = await Promise.all(itemsToExport.map(async (item) => {
+                let imagesHtml = '';
+                if (item.images && item.images.length > 0) {
+                    imagesHtml = '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-top: 20px;">';
+                    
+                    const base64Images = await Promise.all(item.images.map(img => fetchImageAsBase64(getDirectImageUrl(img))));
+                    
+                    for(let base64Src of base64Images) {
+                        imagesHtml += `<div style="height: 180px; text-align: center; border: 1px solid #e5e7eb; border-radius: 6px; overflow: hidden; background: #fafafa; display: flex; align-items: center; justify-content: center;"><img src="${base64Src}" style="max-width: 100%; max-height: 100%; object-fit: contain;"></div>`;
+                    }
+                    imagesHtml += '</div>';
+                }
+
+                return `
+                    <div style="border: 1px solid #ddd; border-radius: 10px; padding: 20px; margin-bottom: 25px; page-break-inside: avoid; background: #fdfdfd; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+                        <div style="border-bottom: 1px dashed #ccc; padding-bottom: 12px; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center;">
+                            <div style="font-size: 18px; font-weight: bold; color: #166534;">วันที่จัดกิจกรรม: ${formatDateTime(item.datetime)}</div>
+                            <div style="font-size: 12px; color: #888;">ID: ${item.id}</div>
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; font-size: 15px; line-height: 1.5;">
+                            <div><strong style="color: #444; width: 100px; display: inline-block;">สาขา:</strong> ${escapeHtml(item.branch)}</div>
+                            <div><strong style="color: #444; width: 100px; display: inline-block;">ผู้รับผิดชอบ:</strong> ${escapeHtml(item.responsible)}</div>
+                            <div style="grid-column: span 2;"><strong style="color: #444; width: 100px; display: inline-block;">พื้นที่:</strong> ${escapeHtml(item.area)}</div>
+                        </div>
+                        <div style="margin-top: 15px; background: #f4fdf4; padding: 15px; border-radius: 6px; font-size: 15px; border: 1px solid #dcfce7;">
+                            <strong style="color: #15803d; margin-bottom: 5px; display: block;">รายละเอียดเนื้อหา:</strong>
+                            <div style="white-space: pre-wrap;">${escapeHtml(item.detail)}</div>
+                        </div>
+                        ${imagesHtml}
+                    </div>
+                `;
+            }));
+
+            htmlContent += renderedItems.join('');
+            htmlContent += `</div>`;
+            container.innerHTML = htmlContent;
+
+            // ปิด Loading และเปิดหน้า Preview
+            Swal.close();
+            openModal('modal-pdf-preview');
+        }
+
+        function downloadPDF() {
+            const container = document.getElementById('pdf-preview-content');
+
+            Swal.fire({
+                title: 'กำลังสร้างไฟล์ PDF...',
+                text: 'กรุณารอสักครู่ ระบบกำลังวาดรูปภาพลงในหน้ากระดาษ',
+                allowOutsideClick: false,
+                background: '#0b3323',
+                color: '#ffffff',
+                didOpen: () => { Swal.showLoading(); }
+            });
+
+            // หน่วงเวลาเล็กน้อยเพื่อให้ภาพในหน้าต่าง Preview ปรากฏครบก่อนแคปเจอร์
+            setTimeout(() => {
+                const opt = {
+                    margin:       [0.3, 0.3, 0.3, 0.3], // ขอบบน, ซ้าย, ล่าง, ขวา (นิ้ว)
+                    filename:     `Safety_Talk_Report_${new Date().getTime()}.pdf`,
+                    image:        { type: 'jpeg', quality: 0.98 },
+                    html2canvas:  { scale: 2, useCORS: true, logging: false },
+                    jsPDF:        { unit: 'in', format: 'a4', orientation: 'portrait' }
+                };
+
+                html2pdf().set(opt).from(container).save().then(() => {
+                    Swal.fire({ icon: 'success', title: 'สร้างไฟล์ PDF สำเร็จ', text: 'ดาวน์โหลดรายงานเรียบร้อยแล้ว', background: '#0b3323', color: '#fff', timer: 2000, showConfirmButton: false });
+                }).catch(err => {
+                    console.error("PDF Error:", err);
+                    Swal.fire({ icon: 'error', title: 'เกิดข้อผิดพลาด', text: 'ไม่สามารถสร้าง PDF ได้ โปรดลองอีกครั้ง', background: '#0b3323', color: '#fff' });
+                });
+            }, 1000);
         }
 
         function changeHistPage(dir) {
@@ -813,9 +1047,13 @@
 
             fetch(APPS_SCRIPT_URL, {
                 method: 'POST',
-                body: params
+                body: params,
+                redirect: "follow"
             })
-            .then(res => res.json())
+            .then(res => {
+                if (!res.ok) throw new Error(`HTTP Status: ${res.status}`);
+                return res.json();
+            })
             .then(res => {
                 if (res.status === 'success') {
                     Swal.fire({ icon: 'success', title: 'บันทึกสำเร็จ', background: '#0b3323', color: '#fff', timer: 1500, showConfirmButton: false });
@@ -916,18 +1154,26 @@
                     params.append('action', 'deleteData');
                     params.append('id', id);
 
-                    fetch(APPS_SCRIPT_URL, { method: 'POST', body: params })
-                    .then(res => res.json())
+                    fetch(APPS_SCRIPT_URL, { method: 'POST', body: params, redirect: "follow" })
+                    .then(res => {
+                        if (!res.ok) throw new Error(`HTTP Status: ${res.status}`);
+                        return res.json();
+                    })
                     .then(res => {
                         if(res.status === 'success') {
                             Swal.fire({ icon: 'success', title: 'ลบสำเร็จ', background: '#0b3323', color: '#fff', timer: 1500, showConfirmButton: false});
                             loadDataFromSheet();
+                        } else {
+                            throw new Error(res.message || "Failed to delete");
                         }
                     })
                     .catch(err => {
-                        Swal.fire({ icon: 'error', title: 'ลบไม่สำเร็จ', background: '#0b3323', color: '#fff'});
+                        console.error("Delete Error:", err);
+                        Swal.fire({ icon: 'error', title: 'ลบไม่สำเร็จ', text: err.message, background: '#0b3323', color: '#fff'});
                     });
                 }
+            }).catch(err => {
+                console.warn("Swal Promise Rejection:", err);
             });
         }
 
